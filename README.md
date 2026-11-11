@@ -70,12 +70,11 @@ flowchart TD
 ## 📂 Project Structure
 
 ```text
-mem_agent/
+mem0-ai-assistant/
 │
 ├── config.py             # Central configuration (loads environment & Mem0 settings)
 ├── memory_agent.py       # Object-oriented MemoryAssistant class
 ├── main.py               # Interactive CLI chat application with Rich UI
-├── mem.py                # Backward-compatible entrypoint
 ├── docker-compose.yml    # Docker configuration for local Qdrant Vector DB
 ├── requirements.txt      # Python dependencies
 ├── .env.example          # Environment variables template
@@ -95,8 +94,8 @@ Ensure you have the following installed:
 
 ### 2. Clone the Repository
 ```bash
-git clone https://github.com/your-username/mem_agent.git
-cd mem_agent
+git clone https://github.com/Rohit18457/mem0-ai-assistant.git
+cd mem0-ai-assistant
 ```
 
 ### 3. Create and Activate a Virtual Environment
