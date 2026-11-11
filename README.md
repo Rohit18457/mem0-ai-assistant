@@ -33,22 +33,29 @@ This project solves this by creating an **AI Memory Assistant** that retains lon
 
 ```mermaid
 flowchart TD
-    User([👤 User Input]) --> Assistant[🧠 Memory Assistant]
+    User([👤 User Input]) --> Assistant[🧠 Dual-Memory Assistant]
     
-    subgraph Memory Retrieval
+    subgraph Short-Term Working Memory
+        Assistant <-->|Sliding Dialog Window| Buffer[(💭 Session History Buffer\nLast N Turns)]
+    end
+
+    subgraph Long-Term Semantic Memory
         Assistant -->|1. Query| HF[🤗 Local Hugging Face Embedder\nmulti-qa-MiniLM-L6-cos-v1]
-        HF -->|2. 384-d Vector| Qdrant[(🗄️ Qdrant Vector Store\nlocalhost:6333)]
-        Qdrant -->|3. Relevant Memories| Assistant
+        HF -->|2. 384-d Vector| Qdrant[(🗄️ Qdrant Vector DB\nlocalhost:6333)]
+        Qdrant -->|3. Recalled Facts| Assistant
     end
 
     subgraph LLM Generation
-        Assistant -->|4. Prompt + Memory Context| Groq[⚡ Groq Cloud API\nqwen/qwen3.8-27b]
+        Assistant -->|4. Prompt + Long-Term Context + Session History| Groq[⚡ Groq Cloud API\nqwen/qwen3.8-27b]
         Groq -->|5. AI Response| Assistant
     end
 
-    subgraph Memory Persistence
-        Assistant -->|6. Store Interaction| Mem0[💾 Mem0 Engine]
-        Mem0 -->|7. Embed & Index| Qdrant
+    subgraph Selective Extraction & Deduplication
+        Assistant -->|6. User Message| Extractor[🎯 Lightweight Fact Extractor\n~60 tokens]
+        Extractor -->|7. Candidate Facts| Dedup{Deduplicate?}
+        Dedup -->|New Unique Fact| Mem0[💾 Mem0 Engine]
+        Dedup -->|Duplicate| Skip[Discard]
+        Mem0 -->|8. Index & Persist| Qdrant
     end
 
     Assistant --> Output([💬 AI Response to User])
@@ -56,14 +63,15 @@ flowchart TD
 
 ---
 
-## ✨ Features
+## ✨ Key Features (v2.0)
 
-- **⚡ Lightning-Fast Inference:** Powered by Groq's LPUs for near-instant responses.
-- **🔍 Semantic Memory Recall:** Retrieves relevant past facts using cosine similarity in Qdrant.
-- **💻 Lightweight Local Embeddings:** `multi-qa-MiniLM-L6-cos-v1` (~80MB) runs locally without hitting cloud rate limits or consuming API quotas.
-- **👤 Multi-User Isolation:** Scoped with `user_id` so different users have separate, private memory profiles.
-- **🎨 Interactive Terminal UI:** Built with [Rich](https://github.com/Textualize/rich) for formatted markdown output and memory inspection commands.
-- **🛡️ Rate-Limit Proof:** Optimized to work within Groq free-tier constraints without token exhaustion errors.
+- **🔄 Dual-Memory Architecture:** Combines short-term working conversation history with persistent long-term semantic memory from Qdrant.
+- **🎯 Selective Fact Extraction:** Intelligently extracts enduring user facts and preferences while ignoring casual pleasantries ("Hi", "Thanks"), without exceeding Groq free-tier token limits.
+- **🛡️ Smart Deduplication:** Prevents redundant facts from cluttering your vector index.
+- **👤 Multi-User Isolation & Switching:** Authenticate or switch user profiles on the fly with `/user <id>`, strictly isolating personal memories.
+- **🛠️ Full Memory CRUD:** Inspect (`/memories`), delete (`/delete <id>`), update (`/update <id>`), or wipe (`/clear`) memories directly from chat.
+- **📊 Built-in Evaluation Benchmark:** Run `python eval.py` to quantitatively measure retrieval Precision@k, Recall@k, grounding accuracy, and latency.
+- **⚡ 100% Free & Fast:** Cloud inference on Groq + local CPU embeddings (no paid OpenAI keys required).
 
 ---
 
@@ -73,8 +81,9 @@ flowchart TD
 mem0-ai-assistant/
 │
 ├── config.py             # Central configuration (loads environment & Mem0 settings)
-├── memory_agent.py       # Object-oriented MemoryAssistant class
+├── memory_agent.py       # Dual-MemoryAssistant class (selective extraction & CRUD)
 ├── main.py               # Interactive CLI chat application with Rich UI
+├── eval.py               # Automated evaluation suite (Precision/Recall/Grounding)
 ├── docker-compose.yml    # Docker configuration for local Qdrant Vector DB
 ├── requirements.txt      # Python dependencies
 ├── .env.example          # Environment variables template
@@ -171,6 +180,39 @@ You: /memories
 You: /exit
 Goodbye! Have a great day!
 ```
+
+---
+
+## 🎮 Interactive Commands
+
+While chatting in the terminal, you can manage memory and profiles using slash commands:
+
+| Command | Action |
+| :--- | :--- |
+| `/memories` | List all saved long-term memories in Qdrant with IDs |
+| `/user <name>` | Switch active user profile (creates isolated memory space) |
+| `/delete <id>` | Delete a specific memory entry by its ID |
+| `/update <id> <text>` | Overwrite an existing memory with updated text |
+| `/clear` | Delete all memories belonging to the active user |
+| `/history` | View short-term working conversation turns of current session |
+| `/reset` | Clear short-term session history (preserves long-term memory) |
+| `/help` | Display interactive command cheat sheet |
+| `/exit` or `/quit` | Exit assistant cleanly |
+
+---
+
+## 📊 Benchmark Evaluation Suite
+
+Measure memory retrieval accuracy, answer grounding, and latency:
+
+```bash
+python eval.py
+```
+
+This runs an automated test against ground-truth facts:
+- **Retrieval Recall@k:** Verifies whether the expected fact is fetched in the top-$k$ semantic search results.
+- **Answer Grounding Rate:** Confirms that the LLM's final response incorporates the retrieved memory.
+- **Latency (ms):** Measures embedding generation + vector search response time.
 
 ---
 
