@@ -13,6 +13,7 @@ from memory_agent import MemoryAssistant
 try:
     from rich.console import Console
     from rich.table import Table
+    from rich.panel import Panel
     console = Console()
     USE_RICH = True
 except ImportError:
@@ -165,3 +166,4 @@ def run_evaluation():
 
 if __name__ == "__main__":
     run_evaluation()
+
