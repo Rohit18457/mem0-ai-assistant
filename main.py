@@ -16,27 +16,28 @@ except ImportError:
 
 def print_banner(user_id: str):
     text = (
-        f"[bold cyan]🧠 AI Memory Assistant (v2.0)[/bold cyan]\n"
-        f"[dim]Dual-Memory: Short-Term Working Buffer + Long-Term Qdrant Vector Store[/dim]\n"
+        f"[bold cyan]🧠 AI Hybrid Memory Assistant (v2.1)[/bold cyan]\n"
+        f"[dim]Architecture: Short-Term Buffer + Qdrant Vector DB + Neo4j Graph Store[/dim]\n"
         f"[dim]LLM: Groq ({GROQ_MODEL}) | Embedder: HuggingFace Local (384-d)[/dim]\n\n"
         f"[yellow]👤 Active Profile:[/yellow] [bold white]{user_id}[/bold white]\n"
-        f"[dim]Commands: [bold]/help[/bold] | [bold]/memories[/bold] | [bold]/user <id>[/bold] | [bold]/delete <id>[/bold] | [bold]/exit[/bold][/dim]"
+        f"[dim]Commands: [bold]/help[/bold] | [bold]/memories[/bold] | [bold]/graph[/bold] | [bold]/user <id>[/bold] | [bold]/delete <id>[/bold] | [bold]/exit[/bold][/dim]"
     )
     if USE_RICH:
         console.print(Panel(text, border_style="cyan", expand=False))
     else:
         print("=" * 65)
-        print(f"🧠 AI Memory Assistant (v2.0) | Active Profile: {user_id}")
-        print("Commands: /help, /memories, /user <id>, /delete <id>, /exit")
+        print(f"🧠 AI Hybrid Memory Assistant (v2.1) | Active Profile: {user_id}")
+        print("Commands: /help, /memories, /graph, /user <id>, /delete <id>, /exit")
         print("=" * 65)
 
 
 def show_help():
     commands = [
-        ("/memories", "List all long-term memories saved in Qdrant"),
+        ("/memories", "List all long-term memories saved in Qdrant Vector DB"),
+        ("/graph", "List all memory facts stored in Neo4j Knowledge Graph"),
         ("/delete <id>", "Delete a specific memory by its ID"),
         ("/update <id> <text>", "Update a memory entry with new text"),
-        ("/clear", "Delete all long-term memories for current user"),
+        ("/clear", "Delete all memories across Qdrant and Neo4j"),
         ("/user <id>", "Switch to another user profile (or create one)"),
         ("/history", "View short-term working conversation turns"),
         ("/reset", "Clear current session's short-term history"),
@@ -54,6 +55,30 @@ def show_help():
         for cmd, desc in commands:
             print(f"{cmd:<22} : {desc}")
         print("--------------------------\n")
+
+
+def show_graph_memories(assistant: MemoryAssistant):
+    facts = assistant.get_graph_memories()
+    if not facts:
+        msg = f"No graph memories found for '{assistant.user_id}' in Neo4j (or Neo4j offline)."
+        if USE_RICH:
+            console.print(f"[dim yellow]{msg}[/dim yellow]")
+        else:
+            print(msg)
+        return
+
+    if USE_RICH:
+        table = Table(title=f"Neo4j Knowledge Graph Facts ({assistant.user_id})", border_style="magenta")
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Graph Node Fact", style="magenta")
+        for idx, fact in enumerate(facts, start=1):
+            table.add_row(str(idx), fact)
+        console.print(table)
+    else:
+        print(f"\n--- Neo4j Graph Facts ({assistant.user_id}) ---")
+        for idx, fact in enumerate(facts, start=1):
+            print(f"{idx}. {fact}")
+        print("----------------------------------------------\n")
 
 
 def show_memories(assistant: MemoryAssistant):
@@ -137,9 +162,14 @@ def run():
                 show_help()
                 continue
 
-            # Command: Show Memories
+            # Command: Show Memories (Qdrant)
             if user_input.lower() == "/memories":
                 show_memories(assistant)
+                continue
+
+            # Command: Show Graph Memories (Neo4j)
+            if user_input.lower() == "/graph":
+                show_graph_memories(assistant)
                 continue
 
             # Command: Show Working History

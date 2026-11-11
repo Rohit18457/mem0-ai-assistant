@@ -1,14 +1,15 @@
 <div align="center">
 
-# 🧠 AI Memory Assistant
+# 🧠 AI Hybrid Memory Assistant
 
-### A Persistent, Context-Aware AI Agent with Long-Term Memory
-Built with **Mem0**, **Groq LLM**, **Local Hugging Face Embeddings**, and **Qdrant Vector Database**.
+### A Persistent, Context-Aware AI Agent with Vector + Knowledge Graph Memory
+Built with **Mem0**, **Groq LLM**, **Local Hugging Face Embeddings**, **Qdrant Vector Database**, and **Neo4j Knowledge Graph**.
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![Groq](https://img.shields.io/badge/LLM-Groq%20Cloud-f55036.svg)](https://groq.com/)
 [![Mem0](https://img.shields.io/badge/Memory-Mem0-purple.svg)](https://mem0.ai/)
 [![Qdrant](https://img.shields.io/badge/Vector%20DB-Qdrant-dc2626.svg?logo=qdrant&logoColor=white)](https://qdrant.tech/)
+[![Neo4j](https://img.shields.io/badge/Graph%20DB-Neo4j%20Aura-008cc1.svg?logo=neo4j&logoColor=white)](https://neo4j.com/)
 [![HuggingFace](https://img.shields.io/badge/Embeddings-Hugging%20Face-ffd21e.svg?logo=huggingface&logoColor=black)](https://huggingface.co/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -20,12 +21,15 @@ Built with **Mem0**, **Groq LLM**, **Local Hugging Face Embeddings**, and **Qdra
 
 Standard LLMs are **stateless** — every time you start a new conversation, they forget who you are, your preferences, and past instructions. 
 
-This project solves this by creating an **AI Memory Assistant** that retains long-term memory across sessions. It intelligently recalls relevant memories whenever you ask a question and stores new facts automatically into a local vector database.
+This project solves this by creating a **Hybrid AI Memory Assistant** that retains memory using two complementary storage engines:
+1. **Semantic Vector Search (Qdrant):** Retrieves facts based on conceptual similarity.
+2. **Knowledge Graph (Neo4j):** Models structured entity relationships `(:User)-[:HAS_FACT]->(:MemoryFact)`.
 
 ### 🌟 100% Free & Open-Source Stack:
 - **No OpenAI Key Required:** Uses high-speed inference on **Groq Cloud**.
-- **No Paid Embedding API:** Uses **Hugging Face Sentence-Transformers** locally on your machine for free with zero rate limits.
-- **Persistent Local Database:** Stores high-dimensional vector embeddings in **Qdrant** via Docker.
+- **No Paid Embedding API:** Uses **Hugging Face Sentence-Transformers** locally on your machine with zero rate limits.
+- **Persistent Local Vector DB:** Stores high-dimensional vector embeddings in **Qdrant** via Docker.
+- **Cloud Knowledge Graph:** Integrated with **Neo4j Aura** cloud tier.
 
 ---
 
@@ -33,29 +37,34 @@ This project solves this by creating an **AI Memory Assistant** that retains lon
 
 ```mermaid
 flowchart TD
-    User([👤 User Input]) --> Assistant[🧠 Dual-Memory Assistant]
+    User([👤 User Input]) --> Assistant[🧠 Hybrid Memory Assistant]
     
     subgraph Short-Term Working Memory
         Assistant <-->|Sliding Dialog Window| Buffer[(💭 Session History Buffer\nLast N Turns)]
     end
 
-    subgraph Long-Term Semantic Memory
+    subgraph Long-Term Semantic Vector Memory
         Assistant -->|1. Query| HF[🤗 Local Hugging Face Embedder\nmulti-qa-MiniLM-L6-cos-v1]
         HF -->|2. 384-d Vector| Qdrant[(🗄️ Qdrant Vector DB\nlocalhost:6333)]
         Qdrant -->|3. Recalled Facts| Assistant
     end
 
+    subgraph Knowledge Graph Memory
+        Assistant -->|Fetch Graph Nodes| Neo4j[(🌐 Neo4j Graph DB\nAura Cloud)]
+    end
+
     subgraph LLM Generation
-        Assistant -->|4. Prompt + Long-Term Context + Session History| Groq[⚡ Groq Cloud API\nqwen/qwen3.8-27b]
+        Assistant -->|4. Prompt + Context + History| Groq[⚡ Groq Cloud API\nqwen/qwen3.8-27b]
         Groq -->|5. AI Response| Assistant
     end
 
-    subgraph Selective Extraction & Deduplication
+    subgraph Selective Extraction & Dual Persistence
         Assistant -->|6. User Message| Extractor[🎯 Lightweight Fact Extractor\n~60 tokens]
         Extractor -->|7. Candidate Facts| Dedup{Deduplicate?}
         Dedup -->|New Unique Fact| Mem0[💾 Mem0 Engine]
         Dedup -->|Duplicate| Skip[Discard]
-        Mem0 -->|8. Index & Persist| Qdrant
+        Mem0 -->|8a. Index Vector| Qdrant
+        Dedup -->|8b. Create Node & Relationship| Neo4j
     end
 
     Assistant --> Output([💬 AI Response to User])
@@ -63,15 +72,15 @@ flowchart TD
 
 ---
 
-## ✨ Key Features (v2.0)
+## ✨ Key Features (v2.1)
 
-- **🔄 Dual-Memory Architecture:** Combines short-term working conversation history with persistent long-term semantic memory from Qdrant.
+- **🌐 Hybrid Memory (Vector + Knowledge Graph):** Combines Qdrant vector similarity with Neo4j entity graph relationships.
+- **🔄 Dual-Memory Pipeline:** Working dialog history buffer + persistent semantic long-term storage.
 - **🎯 Selective Fact Extraction:** Intelligently extracts enduring user facts and preferences while ignoring casual pleasantries ("Hi", "Thanks"), without exceeding Groq free-tier token limits.
 - **🛡️ Smart Deduplication:** Prevents redundant facts from cluttering your vector index.
-- **👤 Multi-User Isolation & Switching:** Authenticate or switch user profiles on the fly with `/user <id>`, strictly isolating personal memories.
-- **🛠️ Full Memory CRUD:** Inspect (`/memories`), delete (`/delete <id>`), update (`/update <id>`), or wipe (`/clear`) memories directly from chat.
+- **👤 Multi-User Isolation & Switching:** Authenticate or switch user profiles on the fly with `/user <id>`, strictly isolating personal memories across both Qdrant and Neo4j.
+- **🛠️ Full Memory CRUD:** Inspect (`/memories`, `/graph`), delete (`/delete <id>`), update (`/update <id>`), or wipe (`/clear`) memories directly from chat.
 - **📊 Built-in Evaluation Benchmark:** Run `python eval.py` to quantitatively measure retrieval Precision@k, Recall@k, grounding accuracy, and latency.
-- **⚡ 100% Free & Fast:** Cloud inference on Groq + local CPU embeddings (no paid OpenAI keys required).
 
 ---
 
@@ -81,11 +90,12 @@ flowchart TD
 mem0-ai-assistant/
 │
 ├── config.py             # Central configuration (loads environment & Mem0 settings)
-├── memory_agent.py       # Dual-MemoryAssistant class (selective extraction & CRUD)
+├── graph_store.py        # Neo4j Knowledge Graph Store (Aura client)
+├── memory_agent.py       # Hybrid MemoryAssistant class (Vector + Graph + History)
 ├── main.py               # Interactive CLI chat application with Rich UI
 ├── eval.py               # Automated evaluation suite (Precision/Recall/Grounding)
 ├── docker-compose.yml    # Docker configuration for local Qdrant Vector DB
-├── requirements.txt      # Python dependencies
+├── requirements.txt      # Python dependencies (includes neo4j driver)
 ├── .env.example          # Environment variables template
 ├── .gitignore            # Git exclusion rules (protects API keys & storage)
 └── README.md             # Project documentation
@@ -190,10 +200,11 @@ While chatting in the terminal, you can manage memory and profiles using slash c
 | Command | Action |
 | :--- | :--- |
 | `/memories` | List all saved long-term memories in Qdrant with IDs |
+| `/graph` | List all memory facts stored in Neo4j Knowledge Graph |
 | `/user <name>` | Switch active user profile (creates isolated memory space) |
 | `/delete <id>` | Delete a specific memory entry by its ID |
 | `/update <id> <text>` | Overwrite an existing memory with updated text |
-| `/clear` | Delete all memories belonging to the active user |
+| `/clear` | Delete all memories across Qdrant and Neo4j |
 | `/history` | View short-term working conversation turns of current session |
 | `/reset` | Clear short-term session history (preserves long-term memory) |
 | `/help` | Display interactive command cheat sheet |
@@ -229,6 +240,9 @@ All settings can be customized in `.env` without modifying the source code:
 | `QDRANT_COLLECTION` | `mem0_hf` | Vector collection name |
 | `EMBEDDING_MODEL` | `multi-qa-MiniLM-L6-cos-v1` | Hugging Face embedding model |
 | `EMBEDDING_DIMS` | `384` | Embedding vector dimensionality |
+| `NEO4J_URI` | *(Optional)* | Neo4j Aura / Server connection URI |
+| `NEO4J_USERNAME` | `neo4j` | Neo4j database username |
+| `NEO4J_PASSWORD` | *(Optional)* | Neo4j database password |
 | `DEFAULT_USER_ID` | `rohit_suryawanshi` | Default user ID (no spaces) |
 
 ---

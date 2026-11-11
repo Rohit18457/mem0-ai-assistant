@@ -2,6 +2,7 @@ import re
 from typing import List, Dict, Any, Tuple, Optional
 from groq import Groq
 from mem0 import Memory
+from graph_store import Neo4jGraphStore
 from config import (
     GROQ_API_KEY,
     GROQ_MODEL,
@@ -12,9 +13,10 @@ from config import (
 
 class MemoryAssistant:
     """
-    Production-grade AI Assistant featuring a dual-memory architecture:
+    Production-grade AI Assistant featuring a hybrid memory architecture:
     1. Short-Term Working Memory: In-memory sliding window of current session dialog turns.
-    2. Long-Term Semantic Memory: Mem0 + local Hugging Face embeddings + Qdrant.
+    2. Long-Term Semantic Vector Memory: Mem0 + local Hugging Face embeddings + Qdrant.
+    3. Knowledge Graph Store: Neo4j Aura (:User)-[:HAS_FACT]->(:MemoryFact).
     Includes selective fact extraction, deduplication, and full CRUD memory management.
     """
 
@@ -25,6 +27,7 @@ class MemoryAssistant:
 
         self.client = Groq(api_key=GROQ_API_KEY)
         self.mem_client = Memory.from_config(get_mem0_config())
+        self.graph_store = Neo4jGraphStore()
 
     @staticmethod
     def _validate_user_id(user_id: str) -> str:
@@ -149,24 +152,29 @@ class MemoryAssistant:
             return False
 
     def clear_all_memories(self) -> bool:
-        """Delete all memories belonging to the active user."""
+        """Delete all memories belonging to the active user across Qdrant and Neo4j."""
         try:
             self.mem_client.delete_all(user_id=self.user_id)
+            self.graph_store.clear_user_graph(self.user_id)
             return True
         except Exception:
             return False
 
+    def get_graph_memories(self) -> List[str]:
+        """Fetch all facts stored in the Neo4j Knowledge Graph for this user."""
+        return self.graph_store.get_user_facts(self.user_id)
+
     # =========================================================================
-    # 3. Chat Pipeline (Dual-Memory Synthesis)
+    # 3. Chat Pipeline (Dual-Memory & Knowledge Graph Synthesis)
     # =========================================================================
     def chat(self, user_query: str) -> Tuple[str, List[str], List[str]]:
         """
-        Dual-memory chat turn:
+        Hybrid-memory chat turn:
         1. Query Long-Term Memory (Qdrant) for relevant past facts.
         2. Construct system prompt with long-term context.
         3. Assemble messages containing recent short-term dialogue turns + current query.
         4. Request completion from Groq LLM.
-        5. Extract enduring facts from user message and selectively persist them.
+        5. Extract enduring facts and selectively persist to Qdrant AND Neo4j.
         6. Append turn to session working history.
 
         Returns:
@@ -205,18 +213,22 @@ class MemoryAssistant:
         )
         response_text = ai_response.choices[0].message.content
 
-        # 5. Selective fact extraction & persistence
+        # 5. Selective fact extraction & hybrid persistence (Qdrant + Neo4j)
         extracted_facts = self.extract_facts(user_query)
         saved_facts = []
 
         for fact in extracted_facts:
             if not self.is_duplicate(fact):
                 try:
+                    # Persist to Qdrant vector store
                     self.mem_client.add(
                         fact,
                         user_id=self.user_id,
                         infer=False
                     )
+                    # Persist to Neo4j knowledge graph
+                    self.graph_store.add_fact(self.user_id, fact)
+
                     saved_facts.append(fact)
                 except Exception:
                     pass

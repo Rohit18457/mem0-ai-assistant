@@ -32,12 +32,17 @@ QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "mem0_hf")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "multi-qa-MiniLM-L6-cos-v1")
 EMBEDDING_DIMS = int(os.getenv("EMBEDDING_DIMS", "384"))
 
+# Neo4j Graph Store Settings
+NEO4J_URI = os.getenv("NEO4J_URI") or os.getenv("NEO_CONNECTION_URI")
+NEO4J_USERNAME = os.getenv("NEO4J_USERNAME") or os.getenv("NEO_USERNAME", "neo4j")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD") or os.getenv("NEO_PASSWORD")
+
 # User Settings
 DEFAULT_USER_ID = os.getenv("DEFAULT_USER_ID", "rohit_suryawanshi")
 
 def get_mem0_config() -> dict:
     """Return the configuration dictionary for Mem0 Memory instance."""
-    return {
+    config = {
         "version": "v1.1",
         "embedder": {
             "provider": "huggingface",
@@ -63,3 +68,15 @@ def get_mem0_config() -> dict:
         }
     }
 
+    # Add Neo4j Graph Store configuration if credentials are provided
+    if NEO4J_URI and NEO4J_PASSWORD:
+        config["graph_store"] = {
+            "provider": "neo4j",
+            "config": {
+                "url": NEO4J_URI,
+                "username": NEO4J_USERNAME,
+                "password": NEO4J_PASSWORD
+            }
+        }
+
+    return config
