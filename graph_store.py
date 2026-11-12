@@ -92,3 +92,4 @@ class Neo4jGraphStore:
                 self.driver.close()
             except Exception:
                 pass
+
