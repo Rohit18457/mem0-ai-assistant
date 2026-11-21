@@ -35,37 +35,37 @@ This project delivers an **Enterprise-Grade AI Hybrid Memory Architecture** comb
 
 ```mermaid
 flowchart TD
-    User([👤 User Request]) --> Assistant[🧠 Hybrid Memory Assistant]
+    User(["👤 User Request"]) --> Assistant["🧠 Hybrid Memory Assistant"]
 
-    subgraph Channel 1: Short-Term Working Memory
-        Assistant <-->|Sliding Dialog Buffer| Buffer[(💭 Recent Dialog Window\nLast N Turns)]
+    subgraph C1 ["Channel 1: Short-Term Working Memory"]
+        Assistant <-->|Sliding Dialog Buffer| Buffer[("💭 Recent Dialog Window<br/>Last N Turns")]
     end
 
-    subgraph Channel 2: Long-Term Semantic Vector Memory
-        Assistant -->|1a. Embed Query| HF[🤗 Local HuggingFace Embedder\n384-d Cosine]
-        HF -->|1b. Vector Search| Qdrant[(🗄️ Qdrant Vector DB\nlocalhost:6333)]
-        Qdrant -->|1c. Semantic Memory Snippets| Fusion[🔀 Hybrid Context Fusion Engine]
+    subgraph C2 ["Channel 2: Long-Term Semantic Vector Memory"]
+        Assistant -->|1a. Embed Query| HF["🤗 Local HuggingFace Embedder<br/>384-d Cosine"]
+        HF -->|1b. Vector Search| Qdrant[("🗄️ Qdrant Vector DB<br/>localhost:6333")]
+        Qdrant -->|1c. Semantic Memory Snippets| Fusion["🔀 Hybrid Context Fusion Engine"]
     end
 
-    subgraph Channel 3: Structured Knowledge Graph (GraphRAG)
-        Assistant -->|2a. Entity Keyword Traversal| Neo4j[(🌐 Neo4j Graph Database\nAura Cloud)]
+    subgraph C3 ["Channel 3: Structured Knowledge Graph GraphRAG"]
+        Assistant -->|2a. Entity Keyword Traversal| Neo4j[("🌐 Neo4j Graph Database<br/>Aura Cloud")]
         Neo4j -->|2b. Structured Triples| Fusion
     end
 
-    subgraph Cognitive Synthesis
-        Fusion -->|Fused Context + Session Buffer| Groq[⚡ Groq LPU Engine\nqwen/qwen3.8-27b]
+    subgraph C4 ["Cognitive Synthesis"]
+        Fusion -->|Fused Context + Session Buffer| Groq["⚡ Groq LPU Engine<br/>qwen/qwen3.8-27b"]
         Groq -->|Synthesized Response| Assistant
     end
 
-    subgraph Fact Extraction & Belief Revision
-        Assistant -->|User Turn| Extractor[🎯 Selective JSON Extractor\n~70 tokens]
-        Extractor -->|Candidate Facts & Triples| ConflictCheck{Belief Conflict?}
-        ConflictCheck -->|Contradiction Detected| Supersede[🔄 Invalidate Stale Memory in Qdrant & Neo4j]
-        ConflictCheck -->|New Unique Fact| Persist[💾 Persist Vector to Qdrant & Triples to Neo4j]
+    subgraph C5 ["Fact Extraction and Belief Revision"]
+        Assistant -->|User Turn| Extractor["🎯 Selective JSON Extractor<br/>~70 tokens"]
+        Extractor -->|Candidate Facts and Triples| ConflictCheck{"Belief Conflict?"}
+        ConflictCheck -->|Contradiction Detected| Supersede["🔄 Invalidate Stale Memory in Qdrant and Neo4j"]
+        ConflictCheck -->|New Unique Fact| Persist["💾 Persist Vector to Qdrant and Triples to Neo4j"]
         Supersede --> Persist
     end
 
-    Assistant --> Output([💬 Personalized Response to User])
+    Assistant --> Output(["💬 Personalized Response to User"])
 ```
 
 ---
