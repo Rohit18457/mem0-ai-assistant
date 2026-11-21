@@ -1,9 +1,10 @@
 """
-Evaluation Suite for AI Memory Assistant.
+Comprehensive Evaluation Suite for AI Hybrid Memory Assistant.
 Measures:
-1. Retrieval Precision@k and Recall@k.
+1. Retrieval Recall@k & Precision.
 2. Retrieval Latency (ms).
-3. Response Grounding (verifying LLM response incorporates retrieved memories).
+3. Response Grounding (LLM response incorporates retrieved memories).
+4. Belief Revision & Conflict Resolution (superseding contradictory facts).
 """
 
 import time
@@ -30,7 +31,7 @@ BENCHMARK_FACTS = [
     "User loves drinking green tea while coding."
 ]
 
-# Evaluation test cases: query, expected keywords in retrieved memory, expected answer keyword
+# Standard retrieval & grounding test cases
 EVAL_TESTS = [
     {
         "query": "What programming languages do I like to code in?",
@@ -71,7 +72,8 @@ def run_evaluation():
     print("📥 Ingesting benchmark facts into Qdrant...")
     for fact in BENCHMARK_FACTS:
         assistant.mem_client.add(fact, user_id=TEST_USER, infer=False)
-    time.sleep(1)  # Brief pause for indexing
+        assistant.graph_store.add_fact(TEST_USER, fact)
+    time.sleep(1)
 
     print(f"✓ Ingested {len(BENCHMARK_FACTS)} facts.\n")
 
@@ -93,14 +95,15 @@ def run_evaluation():
         latency_ms = (time.perf_counter() - start_t) * 1000
         latencies.append(latency_ms)
 
-        # Check Precision@k: Did the retrieved list contain the expected ground truth?
+        # Check Precision@k
         retrieved_combined = " ".join(retrieved).lower()
         retrieval_success = expected_kw in retrieved_combined
         if retrieval_success:
             precision_hits += 1
 
-        # Check Generation Grounding: Does the LLM incorporate the fact?
-        response, _, _ = assistant.chat(query)
+        # Check Generation Grounding
+        chat_res = assistant.chat(query)
+        response = chat_res[0]
         grounding_success = expected_ans_kw in response.lower()
         if grounding_success:
             grounding_hits += 1
@@ -114,7 +117,26 @@ def run_evaluation():
             "latency_ms": latency_ms
         })
 
-    # 4. Cleanup benchmark memories
+    # 4. Evaluate Belief Revision & Conflict Resolution
+    print("\n🔄 Running Belief Revision / Conflict Resolution Benchmark...")
+    # Step A: Ingest initial state
+    conflict_user = "conflict_eval_user"
+    conflict_assistant = MemoryAssistant(user_id=conflict_user)
+    conflict_assistant.clear_all_memories()
+
+    # Initial belief
+    conflict_assistant.chat("I currently live in Seattle, Washington.")
+    time.sleep(1)
+
+    # Contradictory update
+    _, _, _, _, resolved_conflicts = conflict_assistant.chat("I just relocated! I now live in Berlin, Germany.")
+    time.sleep(1)
+
+    # Query updated belief
+    verify_response, verify_mems, _, _, _ = conflict_assistant.chat("Where do I currently live?")
+    conflict_success = "berlin" in verify_response.lower() and "seattle" not in verify_response.lower()
+
+    conflict_assistant.clear_all_memories()
     assistant.clear_all_memories()
 
     # 5. Compute Metrics
@@ -146,11 +168,13 @@ def run_evaluation():
             )
         console.print(table)
 
+        b_icon = "[green]PASS (Seattle superseded by Berlin)[/green]" if conflict_success else "[yellow]ATTENTION NEEDED[/yellow]"
         summary = (
             f"[bold cyan]📈 Benchmark Summary:[/bold cyan]\n"
             f"• [bold white]Retrieval Recall @{k}:[/bold white] [green]{accuracy_retrieval:.1f}%[/green] ({precision_hits}/{total})\n"
             f"• [bold white]Response Grounding Rate:[/bold white] [green]{accuracy_grounding:.1f}%[/green] ({grounding_hits}/{total})\n"
-            f"• [bold white]Average Retrieval Latency:[/bold white] [yellow]{avg_latency:.1f} ms[/yellow]"
+            f"• [bold white]Average Retrieval Latency:[/bold white] [yellow]{avg_latency:.1f} ms[/yellow]\n"
+            f"• [bold white]Belief Revision (Conflict Resolution):[/bold white] {b_icon}"
         )
         console.print(Panel(summary, border_style="green", expand=False))
     else:
@@ -162,8 +186,8 @@ def run_evaluation():
         print(f"Retrieval Recall@{k}: {accuracy_retrieval:.1f}%")
         print(f"Response Grounding: {accuracy_grounding:.1f}%")
         print(f"Average Latency: {avg_latency:.1f}ms")
+        print(f"Belief Revision: {'PASS' if conflict_success else 'FAIL'}")
 
 
 if __name__ == "__main__":
     run_evaluation()
-

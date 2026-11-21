@@ -1,3 +1,4 @@
+import json
 import re
 from typing import List, Dict, Any, Tuple, Optional
 from groq import Groq
@@ -13,12 +14,22 @@ from config import (
 
 class MemoryAssistant:
     """
-    Production-grade AI Assistant featuring a hybrid memory architecture:
-    1. Short-Term Working Memory: In-memory sliding window of current session dialog turns.
-    2. Long-Term Semantic Vector Memory: Mem0 + local Hugging Face embeddings + Qdrant.
-    3. Knowledge Graph Store: Neo4j Aura (:User)-[:HAS_FACT]->(:MemoryFact).
-    Includes selective fact extraction, deduplication, and full CRUD memory management.
+    Production-grade AI Memory Assistant featuring a tri-layer hybrid architecture:
+    1. Short-Term Working Memory: In-memory sliding window of recent conversation turns.
+    2. Long-Term Semantic Vector Memory: Mem0 + local HuggingFace embeddings + Qdrant.
+    3. Knowledge Graph Store: Neo4j Aura (:User)-[:RELATION]->(:Entity) structured GraphRAG.
+
+    Key Production Capabilities:
+    - Selective Fact & Triple Extraction (~70 tokens, zero prompt bloat).
+    - Belief Revision & Conflict Resolution (supersedes obsolete/contradictory facts).
+    - Dual-Channel Hybrid Retrieval (Vector semantic search + Graph entity traversal).
+    - Full Memory Lifecycle CRUD & User Isolation.
     """
+
+    SINGLE_VALUED_RELATIONS = {
+        "LIVES_IN", "LOCATED_IN", "WORKS_AT", "EMPLOYED_BY", "JOB_TITLE",
+        "FAVORITE_LANGUAGE", "PRIMARY_DATABASE"
+    }
 
     def __init__(self, user_id: str = DEFAULT_USER_ID, max_history_turns: int = 5):
         self.user_id = self._validate_user_id(user_id)
@@ -49,23 +60,33 @@ class MemoryAssistant:
         self.session_history.clear()
 
     # =========================================================================
-    # 1. Selective Memory Extraction & Deduplication
+    # 1. Selective Fact & Entity-Relation Extraction
     # =========================================================================
-    def extract_facts(self, user_query: str) -> List[str]:
+    def extract_structured_facts(self, user_query: str) -> Dict[str, Any]:
         """
-        Lightweight LLM call to selectively extract only enduring facts,
-        preferences, or personal attributes from user input.
-        Consumes ~60 tokens, avoiding Mem0's massive 8k system prompt.
+        Lightweight LLM call to extract enduring facts AND structured Graph Triples.
+        Consumes ~70 tokens, producing machine-readable JSON without Mem0 prompt bloat.
+        Returns:
+            {
+                "facts": ["User lives in Pune, India"],
+                "triples": [{"relation": "LIVES_IN", "entity": "Pune", "type": "Location"}]
+            }
         """
         prompt = (
-            "Analyze the following user message. Extract only enduring personal facts, "
-            "preferences, skills, background, or identity details stated by the user.\n"
+            "You are a memory extraction component for an AI assistant.\n"
+            "Analyze the user message and extract ONLY enduring personal facts, background, "
+            "preferences, or identity attributes.\n"
+            "Format your output as strict JSON with this exact schema:\n"
+            "{\n"
+            '  "facts": ["concise third-person statement", ...],\n'
+            '  "triples": [{"relation": "RELATION_NAME", "entity": "EntityName", "type": "EntityType"}, ...]\n'
+            "}\n\n"
             "Rules:\n"
-            "- Output concise, standalone third-person facts (e.g., 'User lives in London', 'User codes in Python').\n"
-            "- If the message is only greetings, pleasantries, general questions, or contains NO personal details, reply exactly with 'NONE'.\n"
-            "- Output one fact per line without bullet points or numbers.\n\n"
-            f"User message: \"{user_query}\"\n"
-            "Extracted facts:"
+            "- If the message contains NO personal facts (e.g. greetings, general questions), return: "
+            '{"facts": [], "triples": []}\n'
+            "- Relations must be UPPERCASE (e.g. LIVES_IN, WORKS_AT, SKILLED_IN, PREFERS, OWNS).\n"
+            "- Do not include markdown codeblocks or explanation. Return JSON only.\n\n"
+            f'User message: "{user_query}"'
         )
 
         try:
@@ -73,43 +94,103 @@ class MemoryAssistant:
                 model=GROQ_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
-                max_tokens=120
+                max_tokens=200,
+                response_format={"type": "json_object"}
             )
             raw = res.choices[0].message.content.strip()
-            if not raw or raw.upper() == "NONE":
+            data = json.loads(raw)
+            return {
+                "facts": data.get("facts", []),
+                "triples": data.get("triples", [])
+            }
+        except Exception:
+            return {"facts": [], "triples": []}
+
+    def extract_facts(self, user_query: str) -> List[str]:
+        """Backward-compatible helper returning list of textual facts."""
+        extracted = self.extract_structured_facts(user_query)
+        return extracted.get("facts", [])
+
+    # =========================================================================
+    # 2. Belief Revision & Conflict Resolution (Interview Crown Jewel)
+    # =========================================================================
+    def resolve_conflicts(self, new_fact: str) -> List[str]:
+        """
+        Detects if a newly extracted fact contradicts or supersedes any prior memory.
+        If a conflict exists, the outdated memory is removed from Qdrant to prevent
+        contradictory prompt hallucinations.
+
+        Example:
+            Existing: "User lives in London"
+            New: "User lives in Berlin"
+            Action: Deletes "User lives in London" and logs belief revision.
+        """
+        conflicts_resolved = []
+        try:
+            # Search candidate memories in Qdrant relevant to this fact topic
+            candidates = self.get_all_memories()
+            if not candidates:
                 return []
 
-            facts = [
-                line.strip()
-                for line in raw.splitlines()
-                if line.strip() and line.strip().upper() != "NONE"
+            candidate_texts = [
+                {"id": m.get("id"), "text": m.get("memory", m.get("data", ""))}
+                for m in candidates
+                if m.get("id") and (m.get("memory") or m.get("data"))
             ]
-            return facts
-        except Exception:
-            return []
 
-    def is_duplicate(self, fact: str, similarity_threshold: float = 0.85) -> bool:
-        """
-        Check if an identical or near-identical fact already exists in memory.
-        """
+            if not candidate_texts:
+                return []
+
+            # Quick verification LLM prompt to check for direct contradiction
+            check_prompt = (
+                "You are a belief revision engine. Determine if the NEW FACT directly contradicts "
+                "or makes any of the EXISTING MEMORIES obsolete.\n\n"
+                f"NEW FACT: \"{new_fact}\"\n\n"
+                f"EXISTING MEMORIES:\n{json.dumps(candidate_texts, indent=2)}\n\n"
+                "Return a JSON array of the IDs of any EXISTING memories that are contradicted or superseded by the NEW FACT.\n"
+                "If none are contradicted, return an empty array: []\n"
+                "Example format: [\"mem_id_1\"]"
+            )
+
+            res = self.client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[{"role": "user", "content": check_prompt}],
+                temperature=0.0,
+                max_tokens=80,
+                response_format={"type": "json_object"}
+            )
+            raw = res.choices[0].message.content.strip()
+            parsed = json.loads(raw)
+            conflicting_ids = parsed if isinstance(parsed, list) else parsed.get("contradicted_ids", parsed.get("ids", []))
+
+            for cid in conflicting_ids:
+                matching = next((m for m in candidate_texts if m["id"] == cid), None)
+                if matching and self.delete_memory(cid):
+                    note = f"Superseded prior memory: '{matching['text']}'"
+                    conflicts_resolved.append(note)
+
+        except Exception:
+            pass
+
+        return conflicts_resolved
+
+    def is_duplicate(self, fact: str) -> bool:
+        """Check if an identical or near-identical fact already exists in memory."""
         try:
             existing = self.search_memories(fact, limit=1)
             if not existing:
                 return False
-            # If the closest memory is almost identical to the candidate fact
             top_mem = existing[0].lower().strip()
             cand = fact.lower().strip()
-            if top_mem == cand or cand in top_mem or top_mem in cand:
-                return True
-            return False
+            return top_mem == cand or cand in top_mem or top_mem in cand
         except Exception:
             return False
 
     # =========================================================================
-    # 2. Memory Search & CRUD Operations
+    # 3. Memory Search & CRUD Operations
     # =========================================================================
     def search_memories(self, query: str, limit: int = 5) -> List[str]:
-        """Search relevant memories matching the query for the active user."""
+        """Search relevant memories matching the query from Qdrant vector store."""
         try:
             response = self.mem_client.search(
                 query=query,
@@ -164,46 +245,69 @@ class MemoryAssistant:
         """Fetch all facts stored in the Neo4j Knowledge Graph for this user."""
         return self.graph_store.get_user_facts(self.user_id)
 
+    def get_graph_triples(self) -> List[Dict[str, str]]:
+        """Fetch all structured triples (:User)-[:RELATION]->(:Entity) in Neo4j."""
+        return self.graph_store.get_user_triples(self.user_id)
+
     # =========================================================================
-    # 3. Chat Pipeline (Dual-Memory & Knowledge Graph Synthesis)
+    # 4. Dual-Channel Hybrid Retrieval (Vector + GraphRAG Fusion)
     # =========================================================================
-    def chat(self, user_query: str) -> Tuple[str, List[str], List[str]]:
+    def retrieve_hybrid_context(self, user_query: str) -> Tuple[List[str], List[Dict[str, str]]]:
         """
-        Hybrid-memory chat turn:
-        1. Query Long-Term Memory (Qdrant) for relevant past facts.
-        2. Construct system prompt with long-term context.
-        3. Assemble messages containing recent short-term dialogue turns + current query.
-        4. Request completion from Groq LLM.
-        5. Extract enduring facts and selectively persist to Qdrant AND Neo4j.
-        6. Append turn to session working history.
+        Dual-channel retrieval:
+        - Channel 1 (Vector): Semantically similar unstructured facts from Qdrant.
+        - Channel 2 (Graph): Keyword-matched entity relations from Neo4j graph traversal.
+        """
+        # 1. Vector Search
+        vector_memories = self.search_memories(user_query, limit=5)
+
+        # 2. Graph Traversal (extract search keywords from user query)
+        words = [w for w in re.findall(r'\b[a-zA-Z]{3,}\b', user_query) if w.lower() not in {"what", "where", "when", "which", "your", "with", "have", "about"}]
+        graph_triples = self.graph_store.search_related_entities(self.user_id, keywords=words, limit=8)
+
+        return vector_memories, graph_triples
+
+    def chat(self, user_query: str) -> Tuple[str, List[str], List[Dict[str, str]], List[str], List[str]]:
+        """
+        Production Hybrid Chat Turn:
+        1. Retrieve dual-channel context (Qdrant semantic vector memories + Neo4j graph triples).
+        2. Fuses context into system prompt.
+        3. Appends recent sliding window of dialog turns.
+        4. Synthesizes AI completion with Groq LPU.
+        5. Selectively extracts new facts & triples.
+        6. Runs Belief Revision / Conflict Resolution to supersede obsolete facts.
+        7. Persists new facts to Qdrant and structured triples to Neo4j.
 
         Returns:
-            Tuple[str, List[str], List[str]]:
-                (AI Response, Retrieved Long-term Memories, Newly Extracted Facts)
+            Tuple[ai_response, vector_memories, graph_triples, saved_facts, conflicts_resolved]
         """
-        # 1. Retrieve long-term memory context
-        retrieved_memories = self.search_memories(user_query)
+        # 1. Dual-Channel Retrieval
+        vector_memories, graph_triples = self.retrieve_hybrid_context(user_query)
 
-        # 2. Build system prompt
-        if retrieved_memories:
-            context_str = "\n".join(f"- {m}" for m in retrieved_memories)
+        # 2. Build fused system prompt
+        context_sections = []
+        if vector_memories:
+            v_str = "\n".join(f"- {m}" for m in vector_memories)
+            context_sections.append(f"Semantic Memories (Qdrant):\n{v_str}")
+
+        if graph_triples:
+            g_str = "\n".join(f"- User --[{t['relation']}]--> {t['entity']} ({t['type']})" for t in graph_triples)
+            context_sections.append(f"Knowledge Graph Triples (Neo4j):\n{g_str}")
+
+        if context_sections:
+            fused_context = "\n\n".join(context_sections)
             system_prompt = (
-                "You are an intelligent, personalized AI assistant with long-term memory.\n"
-                f"Relevant facts known about the user:\n{context_str}\n\n"
-                "Personalize your responses using this context when relevant."
+                "You are an intelligent, personalized AI assistant with persistent long-term memory.\n"
+                f"=== RECALLED USER KNOWLEDGE ===\n{fused_context}\n================================\n"
+                "Personalize your answers accurately using the recalled knowledge."
             )
         else:
-            system_prompt = "You are an intelligent, personalized AI assistant with long-term memory."
+            system_prompt = "You are an intelligent, personalized AI assistant with persistent memory."
 
         # 3. Assemble messages with Short-Term Working Memory
         messages = [{"role": "system", "content": system_prompt}]
-
-        # Include sliding window of recent session turns
         window_size = self.max_history_turns * 2
-        recent_turns = self.session_history[-window_size:]
-        messages.extend(recent_turns)
-
-        # Add current user turn
+        messages.extend(self.session_history[-window_size:])
         messages.append({"role": "user", "content": user_query})
 
         # 4. Generate AI response
@@ -213,28 +317,45 @@ class MemoryAssistant:
         )
         response_text = ai_response.choices[0].message.content
 
-        # 5. Selective fact extraction & hybrid persistence (Qdrant + Neo4j)
-        extracted_facts = self.extract_facts(user_query)
-        saved_facts = []
+        # 5. Extract enduring facts & structured triples
+        extraction = self.extract_structured_facts(user_query)
+        new_facts = extraction.get("facts", [])
+        new_triples = extraction.get("triples", [])
 
-        for fact in extracted_facts:
+        saved_facts = []
+        conflicts_resolved = []
+
+        # 6. Belief Revision & Persistence
+        for fact in new_facts:
+            # Check and resolve contradictions with existing memories
+            resolved = self.resolve_conflicts(fact)
+            conflicts_resolved.extend(resolved)
+
             if not self.is_duplicate(fact):
                 try:
                     # Persist to Qdrant vector store
-                    self.mem_client.add(
-                        fact,
-                        user_id=self.user_id,
-                        infer=False
-                    )
-                    # Persist to Neo4j knowledge graph
+                    self.mem_client.add(fact, user_id=self.user_id, infer=False)
+                    # Persist as unstructured fact node in Neo4j
                     self.graph_store.add_fact(self.user_id, fact)
-
                     saved_facts.append(fact)
                 except Exception:
                     pass
 
-        # 6. Update session short-term working memory
+        # 7. Persist structured Graph Triples in Neo4j
+        for trip in new_triples:
+            rel = trip.get("relation", "RELATED_TO")
+            ent = trip.get("entity", "")
+            ent_type = trip.get("type", "Concept")
+
+            if ent:
+                # If relation is single-valued (e.g. LIVES_IN), remove prior conflicting edges
+                if rel in self.SINGLE_VALUED_RELATIONS:
+                    self.graph_store.remove_conflicting_triples(self.user_id, rel, ent)
+
+                self.graph_store.add_triple(self.user_id, rel, ent, ent_type)
+
+        # 8. Update working session memory
         self.session_history.append({"role": "user", "content": user_query})
         self.session_history.append({"role": "assistant", "content": response_text})
 
-        return response_text, retrieved_memories, saved_facts
+        return response_text, vector_memories, graph_triples, saved_facts, conflicts_resolved

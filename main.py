@@ -16,25 +16,27 @@ except ImportError:
 
 def print_banner(user_id: str):
     text = (
-        f"[bold cyan]🧠 AI Hybrid Memory Assistant (v2.1)[/bold cyan]\n"
-        f"[dim]Architecture: Short-Term Buffer + Qdrant Vector DB + Neo4j Graph Store[/dim]\n"
+        f"[bold cyan]🧠 AI Hybrid Memory Assistant (v3.0 Production)[/bold cyan]\n"
+        f"[dim]Architecture: Short-Term Buffer + Qdrant Vector DB + Neo4j GraphRAG[/dim]\n"
+        f"[dim]Features: Dual-Channel Hybrid Retrieval + Automated Belief Revision[/dim]\n"
         f"[dim]LLM: Groq ({GROQ_MODEL}) | Embedder: HuggingFace Local (384-d)[/dim]\n\n"
         f"[yellow]👤 Active Profile:[/yellow] [bold white]{user_id}[/bold white]\n"
-        f"[dim]Commands: [bold]/help[/bold] | [bold]/memories[/bold] | [bold]/graph[/bold] | [bold]/user <id>[/bold] | [bold]/delete <id>[/bold] | [bold]/exit[/bold][/dim]"
+        f"[dim]Commands: [bold]/help[/bold] | [bold]/memories[/bold] | [bold]/graph[/bold] | [bold]/triples[/bold] | [bold]/user <id>[/bold] | [bold]/exit[/bold][/dim]"
     )
     if USE_RICH:
         console.print(Panel(text, border_style="cyan", expand=False))
     else:
         print("=" * 65)
-        print(f"🧠 AI Hybrid Memory Assistant (v2.1) | Active Profile: {user_id}")
-        print("Commands: /help, /memories, /graph, /user <id>, /delete <id>, /exit")
+        print(f"🧠 AI Hybrid Memory Assistant (v3.0) | Active Profile: {user_id}")
+        print("Commands: /help, /memories, /graph, /triples, /user <id>, /delete <id>, /exit")
         print("=" * 65)
 
 
 def show_help():
     commands = [
-        ("/memories", "List all long-term memories saved in Qdrant Vector DB"),
+        ("/memories", "List all long-term vector memories in Qdrant"),
         ("/graph", "List all memory facts stored in Neo4j Knowledge Graph"),
+        ("/triples", "Inspect structured Entity-Relationship Triples in Neo4j"),
         ("/delete <id>", "Delete a specific memory by its ID"),
         ("/update <id> <text>", "Update a memory entry with new text"),
         ("/clear", "Delete all memories across Qdrant and Neo4j"),
@@ -57,6 +59,39 @@ def show_help():
         print("--------------------------\n")
 
 
+def show_triples(assistant: MemoryAssistant):
+    """Display structured entity-relation triples from Neo4j."""
+    triples = assistant.get_graph_triples()
+    if not triples:
+        msg = f"No structured triples found for '{assistant.user_id}' in Neo4j."
+        if USE_RICH:
+            console.print(f"[dim yellow]{msg}[/dim yellow]")
+        else:
+            print(msg)
+        return
+
+    if USE_RICH:
+        table = Table(title=f"🕸️ Knowledge Graph Triples ({assistant.user_id})", border_style="magenta")
+        table.add_column("Subject", style="cyan", width=12)
+        table.add_column("Relationship (Edge)", style="bold yellow")
+        table.add_column("Target Entity", style="bold green")
+        table.add_column("Entity Type", style="dim white")
+
+        for t in triples:
+            table.add_row(
+                f"👤 {assistant.user_id}",
+                f"──[{t['relation']}]──▶",
+                t["entity"],
+                t["type"]
+            )
+        console.print(table)
+    else:
+        print(f"\n--- Knowledge Graph Triples ({assistant.user_id}) ---")
+        for t in triples:
+            print(f"(User:{assistant.user_id}) --[{t['relation']}]--> ({t['entity']}:{t['type']})")
+        print("----------------------------------------------------\n")
+
+
 def show_graph_memories(assistant: MemoryAssistant):
     facts = assistant.get_graph_memories()
     if not facts:
@@ -68,7 +103,7 @@ def show_graph_memories(assistant: MemoryAssistant):
         return
 
     if USE_RICH:
-        table = Table(title=f"Neo4j Knowledge Graph Facts ({assistant.user_id})", border_style="magenta")
+        table = Table(title=f"Neo4j Memory Fact Nodes ({assistant.user_id})", border_style="magenta")
         table.add_column("#", style="dim", width=4)
         table.add_column("Graph Node Fact", style="magenta")
         for idx, fact in enumerate(facts, start=1):
@@ -167,9 +202,14 @@ def run():
                 show_memories(assistant)
                 continue
 
-            # Command: Show Graph Memories (Neo4j)
+            # Command: Show Graph Fact Nodes (Neo4j)
             if user_input.lower() == "/graph":
                 show_graph_memories(assistant)
+                continue
+
+            # Command: Show Structured Triples (Neo4j)
+            if user_input.lower() in ["/triples", "/kg"]:
+                show_triples(assistant)
                 continue
 
             # Command: Show Working History
@@ -253,12 +293,23 @@ def run():
                         print(f"✓ {msg}")
                 continue
 
-            # Standard Chat Turn
-            ai_text, retrieved, saved = assistant.chat(user_input)
+            # Standard Chat Turn with Hybrid Retrieval
+            chat_result = assistant.chat(user_input)
+            ai_text = chat_result[0]
+            vector_recalled = chat_result[1]
+            graph_recalled = chat_result[2]
+            saved = chat_result[3]
+            conflicts = chat_result[4]
 
-            # Context cues
-            if retrieved:
-                note = f"💡 Recalled {len(retrieved)} relevant memory snippet(s) from past conversations"
+            # Context cues for Dual-Channel Retrieval
+            cues = []
+            if vector_recalled:
+                cues.append(f"{len(vector_recalled)} vector fact(s)")
+            if graph_recalled:
+                cues.append(f"{len(graph_recalled)} graph triple(s)")
+
+            if cues:
+                note = f"💡 Recalled {' & '.join(cues)} from long-term memory"
                 if USE_RICH:
                     console.print(f"[dim italic green]{note}[/dim italic green]")
                 else:
@@ -269,6 +320,15 @@ def run():
                 console.print(Panel(Markdown(ai_text), title="[bold green]AI Assistant[/bold green]", border_style="green"))
             else:
                 print(f"\nAI: {ai_text}")
+
+            # Feedback on Belief Revision / Conflict Resolution
+            if conflicts:
+                for c in conflicts:
+                    note = f"🔄 [Belief Revision] {c}"
+                    if USE_RICH:
+                        console.print(f"[bold yellow]{note}[/bold yellow]")
+                    else:
+                        print(note)
 
             # Feedback on newly learned facts
             if saved:

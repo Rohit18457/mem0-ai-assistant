@@ -1,11 +1,12 @@
 <div align="center">
 
-# 🧠 AI Hybrid Memory Assistant
+# 🧠 AI Hybrid Memory Assistant (v3.0 Enterprise)
 
-### A Persistent, Context-Aware AI Agent with Vector + Knowledge Graph Memory
-Built with **Mem0**, **Groq LLM**, **Local Hugging Face Embeddings**, **Qdrant Vector Database**, and **Neo4j Knowledge Graph**.
+### A Persistent, Context-Aware Agent with Dual-Channel Vector + Knowledge Graph (GraphRAG) Memory & Belief Revision
+Built with **Mem0**, **Groq LPU LLM**, **Local Hugging Face Embeddings**, **Qdrant Vector Database**, **Neo4j Graph Database**, and **FastAPI**.
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Groq](https://img.shields.io/badge/LLM-Groq%20Cloud-f55036.svg)](https://groq.com/)
 [![Mem0](https://img.shields.io/badge/Memory-Mem0-purple.svg)](https://mem0.ai/)
 [![Qdrant](https://img.shields.io/badge/Vector%20DB-Qdrant-dc2626.svg?logo=qdrant&logoColor=white)](https://qdrant.tech/)
@@ -19,17 +20,14 @@ Built with **Mem0**, **Groq LLM**, **Local Hugging Face Embeddings**, **Qdrant V
 
 ## 📖 Overview
 
-Standard LLMs are **stateless** — every time you start a new conversation, they forget who you are, your preferences, and past instructions. 
+Standard LLMs are completely **stateless** — every conversation begins with a blank slate, forgetting user context, tech stacks, personal preferences, and instructions.
 
-This project solves this by creating a **Hybrid AI Memory Assistant** that retains memory using two complementary storage engines:
-1. **Semantic Vector Search (Qdrant):** Retrieves facts based on conceptual similarity.
-2. **Knowledge Graph (Neo4j):** Models structured entity relationships `(:User)-[:HAS_FACT]->(:MemoryFact)`.
-
-### 🌟 100% Free & Open-Source Stack:
-- **No OpenAI Key Required:** Uses high-speed inference on **Groq Cloud**.
-- **No Paid Embedding API:** Uses **Hugging Face Sentence-Transformers** locally on your machine with zero rate limits.
-- **Persistent Local Vector DB:** Stores high-dimensional vector embeddings in **Qdrant** via Docker.
-- **Cloud Knowledge Graph:** Integrated with **Neo4j Aura** cloud tier.
+This project delivers an **Enterprise-Grade AI Hybrid Memory Architecture** combining:
+1. **Short-Term Working Memory:** In-memory sliding window of active dialogue turns.
+2. **Semantic Vector Memory (Qdrant):** Dense embeddings for conceptual and semantic similarity retrieval.
+3. **Structured Knowledge Graph (Neo4j):** Explicit Subject-Predicate-Object triples `(:User)-[:RELATION]->(:Entity)` for multi-hop graph traversal (GraphRAG).
+4. **Belief Revision Engine:** Automatically detects and resolves contradictions when user facts change (e.g., relocating cities or changing programming languages), eliminating hallucinated conflicts.
+5. **Production REST API:** High-throughput FastAPI service with interactive Swagger documentation.
 
 ---
 
@@ -37,254 +35,185 @@ This project solves this by creating a **Hybrid AI Memory Assistant** that retai
 
 ```mermaid
 flowchart TD
-    User([👤 User Input]) --> Assistant[🧠 Hybrid Memory Assistant]
-    
-    subgraph Short-Term Working Memory
-        Assistant <-->|Sliding Dialog Window| Buffer[(💭 Session History Buffer\nLast N Turns)]
+    User([👤 User Request]) --> Assistant[🧠 Hybrid Memory Assistant]
+
+    subgraph Channel 1: Short-Term Working Memory
+        Assistant <-->|Sliding Dialog Buffer| Buffer[(💭 Recent Dialog Window\nLast N Turns)]
     end
 
-    subgraph Long-Term Semantic Vector Memory
-        Assistant -->|1. Query| HF[🤗 Local Hugging Face Embedder\nmulti-qa-MiniLM-L6-cos-v1]
-        HF -->|2. 384-d Vector| Qdrant[(🗄️ Qdrant Vector DB\nlocalhost:6333)]
-        Qdrant -->|3. Recalled Facts| Assistant
+    subgraph Channel 2: Long-Term Semantic Vector Memory
+        Assistant -->|1a. Embed Query| HF[🤗 Local HuggingFace Embedder\n384-d Cosine]
+        HF -->|1b. Vector Search| Qdrant[(🗄️ Qdrant Vector DB\nlocalhost:6333)]
+        Qdrant -->|1c. Semantic Memory Snippets| Fusion[🔀 Hybrid Context Fusion Engine]
     end
 
-    subgraph Knowledge Graph Memory
-        Assistant -->|Fetch Graph Nodes| Neo4j[(🌐 Neo4j Graph DB\nAura Cloud)]
+    subgraph Channel 3: Structured Knowledge Graph (GraphRAG)
+        Assistant -->|2a. Entity Keyword Traversal| Neo4j[(🌐 Neo4j Graph Database\nAura Cloud)]
+        Neo4j -->|2b. Structured Triples| Fusion
     end
 
-    subgraph LLM Generation
-        Assistant -->|4. Prompt + Context + History| Groq[⚡ Groq Cloud API\nqwen/qwen3.8-27b]
-        Groq -->|5. AI Response| Assistant
+    subgraph Cognitive Synthesis
+        Fusion -->|Fused Context + Session Buffer| Groq[⚡ Groq LPU Engine\nqwen/qwen3.8-27b]
+        Groq -->|Synthesized Response| Assistant
     end
 
-    subgraph Selective Extraction & Dual Persistence
-        Assistant -->|6. User Message| Extractor[🎯 Lightweight Fact Extractor\n~60 tokens]
-        Extractor -->|7. Candidate Facts| Dedup{Deduplicate?}
-        Dedup -->|New Unique Fact| Mem0[💾 Mem0 Engine]
-        Dedup -->|Duplicate| Skip[Discard]
-        Mem0 -->|8a. Index Vector| Qdrant
-        Dedup -->|8b. Create Node & Relationship| Neo4j
+    subgraph Fact Extraction & Belief Revision
+        Assistant -->|User Turn| Extractor[🎯 Selective JSON Extractor\n~70 tokens]
+        Extractor -->|Candidate Facts & Triples| ConflictCheck{Belief Conflict?}
+        ConflictCheck -->|Contradiction Detected| Supersede[🔄 Invalidate Stale Memory in Qdrant & Neo4j]
+        ConflictCheck -->|New Unique Fact| Persist[💾 Persist Vector to Qdrant & Triples to Neo4j]
+        Supersede --> Persist
     end
 
-    Assistant --> Output([💬 AI Response to User])
+    Assistant --> Output([💬 Personalized Response to User])
 ```
 
 ---
 
-## ✨ Key Features (v2.1)
+## ✨ Key Enterprise Capabilities
 
-- **🌐 Hybrid Memory (Vector + Knowledge Graph):** Combines Qdrant vector similarity with Neo4j entity graph relationships.
-- **🔄 Dual-Memory Pipeline:** Working dialog history buffer + persistent semantic long-term storage.
-- **🎯 Selective Fact Extraction:** Intelligently extracts enduring user facts and preferences while ignoring casual pleasantries ("Hi", "Thanks"), without exceeding Groq free-tier token limits.
-- **🛡️ Smart Deduplication:** Prevents redundant facts from cluttering your vector index.
-- **👤 Multi-User Isolation & Switching:** Authenticate or switch user profiles on the fly with `/user <id>`, strictly isolating personal memories across both Qdrant and Neo4j.
-- **🛠️ Full Memory CRUD:** Inspect (`/memories`, `/graph`), delete (`/delete <id>`), update (`/update <id>`), or wipe (`/clear`) memories directly from chat.
-- **📊 Built-in Evaluation Benchmark:** Run `python eval.py` to quantitatively measure retrieval Precision@k, Recall@k, grounding accuracy, and latency.
+- **🔀 Dual-Channel Hybrid Retrieval (Vector + GraphRAG Fusion):**
+  Combines unstructured semantic similarity from Qdrant with explicit multi-hop entity relationships from Neo4j (e.g. `User --[LIVES_IN]--> Pune`, `User --[SKILLED_IN]--> Python`).
+- **🔄 Automated Belief Revision (Conflict Resolution):**
+  Solves the classic vector DB pitfall where changing facts cause hallucinations. If the user previously stated *"I live in Seattle"* and later says *"I moved to Berlin"*, the belief revision engine supersedes the old memory in Qdrant and updates the Neo4j edge.
+- **⚡ Zero Rate-Limit, Sub-Second Inference:**
+  Combines Groq LPU's sub-second token generation with local HuggingFace embeddings (`multi-qa-MiniLM-L6-cos-v1`), incurring **zero embedding API costs**.
+- **🌐 Production FastAPI REST API:**
+  Enterprise endpoints (`/v1/chat`, `/v1/memories`, `/v1/graph`, `/v1/health`) with auto-generated Swagger UI at `/docs`.
+- **📊 Scientific Benchmark Evaluation (`eval.py`):**
+  Automated test suite measuring Recall@k, Response Grounding Rate, Latency (ms), and Belief Revision accuracy.
 
 ---
 
 ## 📂 Project Structure
 
 ```text
-mem0-ai-assistant/
-│
-├── config.py             # Central configuration (loads environment & Mem0 settings)
-├── graph_store.py        # Neo4j Knowledge Graph Store (Aura client)
-├── memory_agent.py       # Hybrid MemoryAssistant class (Vector + Graph + History)
-├── main.py               # Interactive CLI chat application with Rich UI
-├── eval.py               # Automated evaluation suite (Precision/Recall/Grounding)
-├── docker-compose.yml    # Docker configuration for local Qdrant Vector DB
-├── requirements.txt      # Python dependencies (includes neo4j driver)
-├── .env.example          # Environment variables template
-├── .gitignore            # Git exclusion rules (protects API keys & storage)
-└── README.md             # Project documentation
+mem_agent/
+├── config.py             # Centralized settings & Mem0 config generator
+├── graph_store.py        # Neo4j Graph Database driver (triples & fact nodes)
+├── memory_agent.py       # Core MemoryAssistant (hybrid retrieval & belief revision)
+├── main.py               # Interactive CLI with Rich formatting & inspection commands
+├── api.py                # Production FastAPI REST service with Swagger docs
+├── eval.py               # Scientific evaluation suite for Recall, Latency & Conflict Resolution
+├── docker-compose.yml    # Qdrant Vector DB container configuration
+├── requirements.txt      # Python dependencies
+├── .env.example          # Environment variable template
+└── README.md             # Documentation & Interview Cheatsheet
 ```
 
 ---
 
-## 🚀 Quickstart Guide
+## ⚡ Quickstart
 
 ### 1. Prerequisites
-Ensure you have the following installed:
-- [Python 3.10+](https://www.python.org/downloads/)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (must be running)
-- A free [Groq API Key](https://console.groq.com)
+- **Python 3.10+**
+- **Docker** (to run local Qdrant Vector DB)
+- **Groq Cloud API Key** ([console.groq.com](https://console.groq.com/keys))
+- **Neo4j Aura Database** ([neo4j.com/cloud/aura](https://neo4j.com/cloud/aura-free/))
 
-### 2. Clone the Repository
+### 2. Setup Environment
+
 ```bash
-git clone https://github.com/Rohit18457/mem0-ai-assistant.git
-cd mem0-ai-assistant
-```
+cd D:\Udemy_GenAI\mem_agent
 
-### 3. Create and Activate a Virtual Environment
-```bash
-# Windows
-python -m venv .venv
-.venv\Scripts\activate
-
-# macOS / Linux
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-### 4. Install Dependencies
-```bash
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### 5. Setup Environment Variables
-Copy `.env.example` to `.env`:
-```bash
-cp .env.example .env
-```
-Open `.env` and paste your Groq API key:
-```env
-GROQ_API_KEY=gsk_your_actual_groq_api_key_here
-```
+### 3. Start Qdrant Vector DB (Docker)
 
-### 6. Start the Qdrant Vector Database
-Start Qdrant in the background using Docker Compose:
 ```bash
 docker compose up -d
 ```
-> Verify it's running by visiting [http://localhost:6333/dashboard](http://localhost:6333/dashboard) in your browser.
+Verify Qdrant web dashboard at: `http://localhost:6333/dashboard`
 
-### 7. Run the Assistant!
+### 4. Configure Credentials
+
+Create `.env` from template:
+```bash
+cp .env.example .env
+```
+Ensure your `.env` contains:
+```env
+GROQ_API_KEY=gsk_your_groq_api_key_here
+GROQ_MODEL=qwen/qwen3.8-27b
+NEO4J_URI=neo4j+s://your-instance.databases.neo4j.io
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=your_neo4j_password
+```
+
+---
+
+## 🚀 Usage
+
+### Option A: Interactive CLI Assistant
 ```bash
 python main.py
 ```
-*(Or alternatively: `python mem.py`)*
+**Interactive Commands:**
+- `/memories` — Inspect all long-term vector memories in Qdrant.
+- `/triples` — Inspect structured Entity-Relationship Triples in Neo4j.
+- `/graph` — Inspect memory fact nodes in Neo4j.
+- `/user <id>` — Switch between isolated user profiles.
+- `/reset` — Clear short-term working buffer while keeping long-term memory.
+- `/clear` — Wipe all memories for active user across both DBs.
 
----
+### Option B: Production REST API Server
+```bash
+python -m uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+```
+Open interactive Swagger UI: **`http://localhost:8000/docs`**
 
-## 💬 Example Interactive Session
-
-```text
-============================================================
-🧠 AI Memory Assistant
-Powered by Mem0 + Groq (qwen/qwen3.8-27b) + HuggingFace + Qdrant
-👤 Active User: rohit_suryawanshi
-Commands: /memories (list all), /exit (leave)
-============================================================
-
-You: Hey! My name is Rohit and I love building AI agents in Python.
-AI: Hello Rohit! It's awesome to meet you. Python is a fantastic language for building AI agents. What kind of agents are you currently working on?
-Memory has been saved.
-----------------------------------------
-
-You: What is my favorite programming language?
-[Context] Retrieved 2 relevant memories.
-AI: Based on what you shared earlier, your favorite programming language is Python!
-Memory has been saved.
-----------------------------------------
-
-You: /memories
-┌───┬────────────────────────────────────────────────────────┬─────────────────────┐
-│ # │ Memory Snippet                                         │ Created At          │
-├───┼────────────────────────────────────────────────────────┼─────────────────────┤
-│ 1 │ Hey! My name is Rohit and I love building AI agents... │ 2026-11-11T11:05:12 │
-│ 2 │ Hello Rohit! It's awesome to meet you...               │ 2026-11-11T11:05:14 │
-└───┴────────────────────────────────────────────────────────┴─────────────────────┘
-
-You: /exit
-Goodbye! Have a great day!
+#### Sample API Request:
+```bash
+curl -X POST "http://localhost:8000/v1/chat" \
+     -H "Content-Type: application/json" \
+     -d '{"message": "I prefer building microservices in Python and Go.", "user_id": "rohit"}'
 ```
 
----
-
-## 🎮 Interactive Commands
-
-While chatting in the terminal, you can manage memory and profiles using slash commands:
-
-| Command | Action |
-| :--- | :--- |
-| `/memories` | List all saved long-term memories in Qdrant with IDs |
-| `/graph` | List all memory facts stored in Neo4j Knowledge Graph |
-| `/user <name>` | Switch active user profile (creates isolated memory space) |
-| `/delete <id>` | Delete a specific memory entry by its ID |
-| `/update <id> <text>` | Overwrite an existing memory with updated text |
-| `/clear` | Delete all memories across Qdrant and Neo4j |
-| `/history` | View short-term working conversation turns of current session |
-| `/reset` | Clear short-term session history (preserves long-term memory) |
-| `/help` | Display interactive command cheat sheet |
-| `/exit` or `/quit` | Exit assistant cleanly |
-
----
-
-## 📊 Benchmark Evaluation Suite
-
-Measure memory retrieval accuracy, answer grounding, and latency:
-
+### Option C: Run Scientific Evaluation Suite
 ```bash
 python eval.py
 ```
 
-This runs an automated test against ground-truth facts:
-- **Retrieval Recall@k:** Verifies whether the expected fact is fetched in the top-$k$ semantic search results.
-- **Answer Grounding Rate:** Confirms that the LLM's final response incorporates the retrieved memory.
-- **Latency (ms):** Measures embedding generation + vector search response time.
+---
+
+## 🎯 Top 5 Memory Agent Interview Questions & System Design Answers
+
+Prepare for technical interviews with this direct architecture breakdown:
+
+### Q1: Why combine a Vector DB (Qdrant) with a Knowledge Graph (Neo4j) instead of using Vector search alone?
+> **Answer:** Vector search calculates semantic proximity across dense embeddings, making it excellent for retrieving fuzzy, nuanced text passages. However, vector search struggles with:
+> 1. Multi-hop relationship queries (e.g. *"What skills do people on my team have?"*).
+> 2. Exact factual consistency (dense vectors can confuse negative or antonymous statements).
+> 
+> By implementing **Dual-Channel Hybrid Retrieval (GraphRAG)**, our agent queries Qdrant for semantic context and traverses Neo4j for deterministic triples `(:User)-[:SKILLED_IN]->(:Skill)`. We fuse both context streams before prompting the LLM, giving both fuzzy conceptual recall and exact relational grounding.
+
+### Q2: What happens when user facts change over time? How do you prevent contradictory hallucinations?
+> **Answer:** This is known as the **Belief Revision problem**. Naive vector memory agents blindly append new embeddings, so if a user previously said *"I live in Seattle"* and later says *"I moved to Berlin"*, both memories get retrieved, causing prompt hallucinations.
+> 
+> Our architecture implements an automated **Belief Revision Engine** (`resolve_conflicts` in `memory_agent.py`). When a new fact is extracted, the agent performs a conflict check against candidate memories. Contradicted memories are automatically deleted or marked as superseded in Qdrant, and the corresponding Neo4j edge is updated, guaranteeing single-truth consistency.
+
+### Q3: How do you prevent token bloat and rate limits when extracting memories?
+> **Answer:** Out-of-the-box frameworks like default Mem0 inject an ~8,000 token system prompt for memory inference on every chat turn, causing severe latency and token quota exhaustion.
+> 
+> We engineered a **Lightweight Selective Fact & Triple Extractor** (`extract_structured_facts`). It runs a dedicated, zero-shot structured JSON prompt consuming only ~70 tokens. Non-personal dialogue (e.g. *"Hello"*, *"Thank you"*) immediately returns empty lists, saving tokens and keeping retrieval latency under 150ms.
+
+### Q4: How is user data isolated in production (Multi-Tenancy)?
+> **Answer:** Multi-tenancy is enforced at every layer:
+> 1. In Qdrant: Every payload stores `user_id`, and all search queries execute with strict payload filters: `{"must": [{"key": "user_id", "match": {"value": user_id}}]}`.
+> 2. In Neo4j: All graph queries anchor to the root node `(:User {id: $user_id})` and traverse outwards along user-owned edges.
+> 3. In the API layer: `user_id` is validated with strict regex alphanumeric bounds, preventing cross-tenant leakage.
+
+### Q5: How do you evaluate and benchmark memory retrieval?
+> **Answer:** We built a dedicated benchmark suite (`eval.py`) evaluating:
+> 1. **Recall@k & Precision@k:** Measuring whether ground-truth memories are retrieved in the top $k$ candidates.
+> 2. **Response Grounding Rate:** Verifying that the LLM's final generated answer explicitly cites the retrieved memory context.
+> 3. **Retrieval Latency (ms):** Benchmarking vector search times (averaging ~10-25 ms with local embeddings).
+> 4. **Belief Revision Success Rate:** Ingesting contradictory statements and asserting that outdated facts are superseded in subsequent turns.
 
 ---
 
-## ⚙️ Configuration Reference
+## 📜 License
 
-All settings can be customized in `.env` without modifying the source code:
-
-| Variable | Default Value | Description |
-| :--- | :--- | :--- |
-| `GROQ_API_KEY` | *(Required)* | Your Groq Cloud API key |
-| `GROQ_MODEL` | `qwen/qwen3.8-27b` | Groq chat completion model |
-| `QDRANT_HOST` | `localhost` | Qdrant server host |
-| `QDRANT_PORT` | `6333` | Qdrant server port |
-| `QDRANT_COLLECTION` | `mem0_hf` | Vector collection name |
-| `EMBEDDING_MODEL` | `multi-qa-MiniLM-L6-cos-v1` | Hugging Face embedding model |
-| `EMBEDDING_DIMS` | `384` | Embedding vector dimensionality |
-| `NEO4J_URI` | *(Optional)* | Neo4j Aura / Server connection URI |
-| `NEO4J_USERNAME` | `neo4j` | Neo4j database username |
-| `NEO4J_PASSWORD` | *(Optional)* | Neo4j database password |
-| `DEFAULT_USER_ID` | `rohit_suryawanshi` | Default user ID (no spaces) |
-
----
-
-## 🛠️ Common Issues & Troubleshooting
-
-### 1. `Vector dimension error: expected dim: 1536, got 384`
-- **Cause:** Qdrant's default collection was initialized for OpenAI embeddings (1536 dimensions), but Hugging Face models output 384 dimensions.
-- **Solution:** This repository uses `collection_name="mem0_hf"`, which automatically configures the collection for 384-dimensional vectors.
-
-### 2. `Invalid user_id: cannot contain whitespace`
-- **Cause:** Mem0 requires user IDs to be valid slugs without spaces.
-- **Solution:** Use underscores or dashes (e.g., `rohit_suryawanshi` instead of `Rohit Suryawanshi`).
-
-### 3. `Error code: 413 - Request too large... Limit 7000`
-- **Cause:** Mem0's automatic extraction prompt is ~8,200 tokens, which exceeds Groq's free-tier input limits for some preview models.
-- **Solution:** Our implementation uses `infer=False` in `mem0.add()`, computing embeddings locally via Hugging Face and bypassing Groq token consumption completely during memory writes.
-
-### 4. Docker Qdrant connection refused
-- **Solution:** Run `docker compose ps` to check container status, or restart with `docker compose restart`.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
----
-
-## 📄 License
-
-Distributed under the **MIT License**. See `LICENSE` for more information.
-
----
-
-<div align="center">
-Built with ❤️ for the AI Developer Community.
-</div>
-
+Distributed under the [MIT License](LICENSE).
